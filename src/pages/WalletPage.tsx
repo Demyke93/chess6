@@ -1,3 +1,4 @@
+
 import { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -6,17 +7,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { CoinConversionInfo } from '@/components/CoinConversionInfo';
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FormEvent } from 'react';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ArrowUpFromLine, ArrowDownToLine, Wallet } from 'lucide-react';
+import { Wallet } from 'lucide-react';
 import { useWallet } from '@/hooks/useWallet';
 import { useTransactions } from '@/hooks/useTransactions';
 import { TransactionHistory } from '@/components/wallet/TransactionHistory';
 import { TransactionForm } from '@/components/wallet/TransactionForm';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useQuery } from '@tanstack/react-query';
+import { useConversionRate } from '@/hooks/useConversionRate';
+import { WithdrawalDialog } from '@/components/wallet/WithdrawalDialog';
+import { useBanks } from '@/hooks/useBanks';
 
 const WalletPage = () => {
   const { user } = useAuth();
@@ -30,46 +30,13 @@ const WalletPage = () => {
   const [isVerifying, setIsVerifying] = useState(false);
   const [activeTab, setActiveTab] = useState("balance");
 
-  const { data: wallet, isLoading: walletLoading, refetch } = useWallet();
+  const { data: wallet, isLoading: walletLoading, refetch: refetchWallet } = useWallet();
   
-  const { data: transactions = [], isLoading: transactionsLoading } = useTransactions(wallet?.id);
+  const { data: transactions = [], isLoading: transactionsLoading, refetch: refetchTransactions } = useTransactions(wallet?.id);
 
-  const { data: banks } = useQuery({
-    queryKey: ['banks'],
-    queryFn: async () => {
-      try {
-        const response = await fetch('https://api.paystack.co/bank');
-        const data = await response.json();
-        return data.status ? data.data : [];
-      } catch (error) {
-        console.error('Error fetching banks:', error);
-        return [];
-      }
-    },
-  });
+  const { data: banks } = useBanks();
 
-  const { data: conversionRate } = useQuery({
-    queryKey: ["conversionRate"],
-    queryFn: async () => {
-      try {
-        const { data, error } = await supabase
-          .from('system_settings')
-          .select('value')
-          .eq('key', 'currency_conversion')
-          .single();
-        
-        if (error) {
-          console.error("Error fetching conversion rate:", error);
-          return { value: { naira_to_coin: 1000, min_deposit: 1000, min_withdrawal: 1000 } };
-        }
-        
-        return data || { value: { naira_to_coin: 1000, min_deposit: 1000, min_withdrawal: 1000 } };
-      } catch (error) {
-        console.error("Error in conversion rate fetch:", error);
-        return { value: { naira_to_coin: 1000, min_deposit: 1000, min_withdrawal: 1000 } };
-      }
-    }
-  });
+  const { data: conversionRate, isLoading: rateLoading } = useConversionRate();
 
   const nairaRate = typeof conversionRate?.value === 'object' 
     ? (conversionRate.value as any).naira_to_coin || 1000 
@@ -111,31 +78,63 @@ const WalletPage = () => {
     }
 
     try {
+      // Create transaction first to ensure it exists
+      if (!wallet?.id) {
+        toast({
+          title: 'Error',
+          description: 'No wallet found. Please refresh the page.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      
+      // Generate a unique reference for this transaction
+      const reference = `chess_${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
+      
+      // Create the pending transaction in the database
+      const { error: txError } = await supabase.from('transactions').insert({
+        wallet_id: wallet.id,
+        amount: depositAmount / nairaRate,
+        type: 'deposit',
+        status: 'pending',
+        reference: reference
+      });
+      
+      if (txError) {
+        throw new Error(`Failed to create transaction: ${txError.message}`);
+      }
+      
+      // Now call the Paystack function with the reference
       const response = await supabase.functions.invoke('paystack', {
         body: { 
           amount: depositAmount,
           email: user.email,
-          type: 'deposit'
+          type: 'deposit',
+          reference: reference
         },
       });
 
-      if (response.data.status) {
-        await supabase.from('transactions').insert({
-          wallet_id: wallet?.id,
-          amount: depositAmount / nairaRate,
-          type: 'deposit',
-          status: 'pending',
-          reference: response.data.data.reference
-        });
-        
-        window.location.href = response.data.data.authorization_url;
-      } else {
-        throw new Error('Failed to initialize payment');
+      console.log('Paystack response:', response);
+
+      if (response?.error) {
+        throw new Error(`Payment failed: ${response.error}`);
       }
+
+      if (!response?.data) {
+        throw new Error('No response from payment service');
+      }
+      
+      if (!response.data.status) {
+        throw new Error(response.data.message || 'Failed to initialize payment');
+      }
+      
+      // Redirect to payment URL
+      window.location.href = response.data.data.authorization_url;
     } catch (error) {
+      console.error('Deposit error:', error);
       toast({
-        title: 'Error',
-        description: error.message,
+        title: 'Payment Error',
+        description: error.message || 'Failed to process payment',
         variant: 'destructive',
       });
     }
@@ -211,58 +210,92 @@ const WalletPage = () => {
         throw new Error('Please verify your account details first');
       }
 
+      if (!wallet?.id) {
+        throw new Error('No wallet found. Please refresh the page.');
+      }
+      
+      // Create the withdrawal transaction
+      const { data: txData, error: txError } = await supabase.from('transactions').insert({
+        wallet_id: wallet.id,
+        amount: coins,
+        type: 'withdrawal',
+        status: 'processing',
+        payout_details: {
+          account_number: accountNumber,
+          bank_code: bankCode,
+          account_name: accountName
+        }
+      }).select('id').single();
+      
+      if (txError) {
+        throw new Error(`Failed to create transaction: ${txError.message}`);
+      }
+      
+      // Call the Paystack function
       const response = await supabase.functions.invoke('paystack', {
         body: { 
           amount: withdrawalAmount,
           email: user.email,
           type: 'withdrawal',
           accountNumber,
-          bankCode
+          bankCode,
+          transactionId: txData.id
         },
       });
 
-      if (response.data.status) {
-        await supabase.from('transactions').insert({
-          wallet_id: wallet?.id,
-          amount: coins,
-          type: 'withdrawal',
-          status: 'processing',
-          payout_details: {
-            account_number: accountNumber,
-            bank_code: bankCode,
-            account_name: accountName,
-            reference: response.data.data.reference
-          }
-        });
-
-        await supabase.from('wallets').update({
-          balance: (wallet?.balance || 0) - coins,
-          updated_at: new Date().toISOString()
-        }).eq('id', wallet?.id);
-
-        toast({
-          title: 'Success',
-          description: 'Withdrawal request submitted successfully',
-        });
-        setAmount('');
-        setIsWithdrawalOpen(false);
-        refetch();
-      } else {
-        throw new Error('Failed to process withdrawal: ' + (response.data.message || 'Unknown error'));
+      if (response?.error) {
+        throw new Error(`Withdrawal failed: ${response.error}`);
       }
+
+      if (!response?.data) {
+        throw new Error('No response from payment service');
+      }
+      
+      if (!response.data.status) {
+        // Update transaction to failed status
+        await supabase.from('transactions')
+          .update({ status: 'failed' })
+          .eq('id', txData.id);
+          
+        throw new Error(response.data.message || 'Failed to process withdrawal');
+      }
+
+      // Update the wallet balance
+      await supabase.from('wallets').update({
+        balance: (wallet?.balance || 0) - coins,
+        updated_at: new Date().toISOString()
+      }).eq('id', wallet?.id);
+
+      toast({
+        title: 'Success',
+        description: 'Withdrawal request submitted successfully',
+      });
+      
+      setAmount('');
+      setIsWithdrawalOpen(false);
+      setAccountNumber('');
+      setBankCode('');
+      setAccountName('');
+      
+      // Refresh the data
+      refetchWallet();
+      refetchTransactions();
     } catch (error) {
+      console.error('Withdrawal error:', error);
       toast({
         title: 'Error',
-        description: error.message,
+        description: error.message || 'An unexpected error occurred',
         variant: 'destructive',
       });
     }
   };
 
-  if (walletLoading) {
-    return <div className="flex justify-center items-center h-64">
-      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-chess-accent"></div>
-    </div>;
+  if (walletLoading && !wallet) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-chess-accent"></div>
+      </div>
+    );
   }
 
   return (
@@ -298,7 +331,7 @@ const WalletPage = () => {
             <CardContent>
               <div className="space-y-4">
                 <div className="text-2xl font-bold">
-                  {walletLoading ? 'Loading...' : `${wallet?.balance || 0} coins`}
+                  {walletLoading ? 'Loading...' : `${wallet?.balance?.toFixed(2) || 0} coins`}
                 </div>
 
                 {!wallet?.is_demo && (
@@ -337,78 +370,20 @@ const WalletPage = () => {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={isWithdrawalOpen} onOpenChange={setIsWithdrawalOpen}>
-        <DialogContent className="bg-chess-dark border-chess-brown text-white">
-          <DialogHeader>
-            <DialogTitle>Withdrawal</DialogTitle>
-            <DialogDescription>
-              Enter your bank account details to withdraw ₦{Number(amount).toLocaleString() || '0'}
-            </DialogDescription>
-          </DialogHeader>
-          
-          <form onSubmit={handleWithdrawal} className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Bank</label>
-              <Select value={bankCode} onValueChange={setBankCode}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a bank" />
-                </SelectTrigger>
-                <SelectContent>
-                  {banks?.map((bank) => (
-                    <SelectItem key={bank.code} value={bank.code}>
-                      {bank.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Account Number</label>
-              <Input
-                type="text"
-                value={accountNumber}
-                onChange={(e) => setAccountNumber(e.target.value)}
-                placeholder="Enter 10-digit account number"
-                maxLength={10}
-              />
-            </div>
-            
-            <div className="flex items-center justify-between">
-              <Button 
-                type="button" 
-                variant="outline" 
-                onClick={verifyAccount}
-                disabled={isVerifying || !bankCode || !accountNumber}
-              >
-                {isVerifying ? 'Verifying...' : 'Verify Account'}
-              </Button>
-              
-              {accountName && (
-                <div className="text-green-400 text-sm font-medium">
-                  {accountName}
-                </div>
-              )}
-            </div>
-            
-            <DialogFooter>
-              <Button 
-                type="button" 
-                variant="outline" 
-                onClick={() => setIsWithdrawalOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button 
-                type="submit"
-                disabled={!accountName || !bankCode || !accountNumber}
-              >
-                Withdraw
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <WithdrawalDialog 
+        isOpen={isWithdrawalOpen}
+        onOpenChange={setIsWithdrawalOpen}
+        amount={amount}
+        bankCode={bankCode}
+        setBankCode={setBankCode}
+        accountNumber={accountNumber}
+        setAccountNumber={setAccountNumber}
+        accountName={accountName}
+        isVerifying={isVerifying}
+        verifyAccount={verifyAccount}
+        handleWithdrawal={handleWithdrawal}
+        banks={banks || []}
+      />
     </div>
   );
 };

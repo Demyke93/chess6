@@ -8,10 +8,10 @@ export const useWallet = () => {
   const { user } = useAuth();
 
   return useQuery({
-    queryKey: ['wallet'],
+    queryKey: ['wallet', user?.id],
     queryFn: async () => {
       if (!user?.id) {
-        // Rather than throwing, return null to indicate user not authenticated
+        console.log('No user ID, returning null wallet');
         return null;
       }
 
@@ -20,7 +20,7 @@ export const useWallet = () => {
           .from('wallets')
           .select('*')
           .eq('user_id', user.id)
-          .single();
+          .maybeSingle();
         
         if (walletError) {
           console.error('Error fetching wallet data:', walletError);
@@ -35,13 +35,43 @@ export const useWallet = () => {
           } as Wallet;
         }
 
+        // If wallet doesn't exist for this user, create one
+        if (!walletData) {
+          console.log('Creating new wallet for user', user.id);
+          const { data: newWallet, error: createError } = await supabase
+            .from('wallets')
+            .insert({
+              user_id: user.id,
+              balance: 0
+            })
+            .select('*')
+            .maybeSingle();
+
+          if (createError) {
+            console.error('Error creating wallet:', createError);
+            return {
+              id: '',
+              user_id: user.id,
+              balance: 0,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              is_demo: false
+            } as Wallet;
+          }
+          
+          return {
+            ...newWallet,
+            is_demo: false
+          } as Wallet;
+        }
+
         let isDemo = false;
         try {
           const { data: profileData } = await supabase
             .from('profiles')
             .select('is_demo')
             .eq('id', user.id)
-            .single();
+            .maybeSingle();
           
           isDemo = profileData?.is_demo || false;
         } catch (err) {
@@ -63,6 +93,6 @@ export const useWallet = () => {
         } as Wallet;
       }
     },
-    enabled: !!user,
+    enabled: !!user?.id,
   });
 };

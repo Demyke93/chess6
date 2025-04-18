@@ -2,15 +2,16 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { ArrowUpFromLine, ArrowDownToLine } from 'lucide-react';
+import { ArrowUpFromLine, ArrowDownToLine, Loader2 } from 'lucide-react';
 import { useState } from "react";
+import { useToast } from '@/hooks/use-toast';
 
 interface TransactionFormProps {
   transactionType: 'deposit' | 'withdraw';
   setTransactionType: (value: 'deposit' | 'withdraw') => void;
   amount: string;
   setAmount: (value: string) => void;
-  handleDeposit: () => void;
+  handleDeposit: () => Promise<void>;
   setIsWithdrawalOpen: (value: boolean) => void;
   minAmount: number;
   nairaRate: number;
@@ -27,18 +28,42 @@ export const TransactionForm = ({
   nairaRate,
 }: TransactionFormProps) => {
   const [isProcessing, setIsProcessing] = useState(false);
+  const { toast } = useToast();
 
   const handleTransactionAction = async () => {
     if (transactionType === 'deposit') {
+      if (!amount || isNaN(Number(amount)) || Number(amount) < minAmount) {
+        toast({
+          title: 'Invalid amount',
+          description: `Minimum amount is ₦${minAmount.toLocaleString()}`,
+          variant: 'destructive'
+        });
+        return;
+      }
+
       setIsProcessing(true);
       try {
         await handleDeposit();
       } catch (error) {
         console.error("Error processing deposit:", error);
+        toast({
+          title: 'Deposit failed',
+          description: error?.message || 'An unexpected error occurred',
+          variant: 'destructive'
+        });
       } finally {
         setIsProcessing(false);
       }
     } else {
+      if (!amount || isNaN(Number(amount)) || Number(amount) < minAmount) {
+        toast({
+          title: 'Invalid amount',
+          description: `Minimum amount is ₦${minAmount.toLocaleString()}`,
+          variant: 'destructive'
+        });
+        return;
+      }
+      
       setIsWithdrawalOpen(true);
     }
   };
@@ -76,7 +101,12 @@ export const TransactionForm = ({
             onClick={handleTransactionAction}
             disabled={isProcessing}
           >
-            {isProcessing ? 'Processing...' : transactionType === 'deposit' ? 'Deposit' : 'Withdraw'}
+            {isProcessing ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 
+                Processing...
+              </>
+            ) : transactionType === 'deposit' ? 'Deposit' : 'Withdraw'}
           </Button>
         </div>
         {amount && !isNaN(Number(amount)) && (

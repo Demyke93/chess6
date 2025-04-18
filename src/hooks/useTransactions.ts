@@ -18,22 +18,18 @@ export const useTransactions = (walletId?: string) => {
   const { user } = useAuth();
 
   return useQuery({
-    queryKey: ['transactions', walletId],
+    queryKey: ['transactions', walletId, user?.id],
     queryFn: async () => {
       try {
         let walletIdToUse = walletId;
         
-        if (!walletIdToUse) {
+        if (!walletIdToUse && user?.id) {
           // If no wallet ID is provided, fetch the user's wallet first
-          if (!user?.id) {
-            return []; // Return empty array if user is not authenticated
-          }
-          
           const { data: walletData, error: walletError } = await supabase
             .from('wallets')
             .select('id')
             .eq('user_id', user.id)
-            .single();
+            .maybeSingle();
           
           if (walletError) {
             console.error('Error fetching wallet:', walletError);
@@ -41,11 +37,28 @@ export const useTransactions = (walletId?: string) => {
           }
           
           if (!walletData) {
-            console.error('Wallet not found');
-            return []; // Return empty array if wallet not found
+            console.log('Wallet not found, creating a new one');
+            // Create a wallet for the user if it doesn't exist
+            const { data: newWallet, error: createError } = await supabase
+              .from('wallets')
+              .insert({ user_id: user.id, balance: 0 })
+              .select('id')
+              .single();
+              
+            if (createError) {
+              console.error('Error creating wallet:', createError);
+              return []; // Return empty array on error
+            }
+            
+            walletIdToUse = newWallet.id;
+          } else {
+            walletIdToUse = walletData.id;
           }
-          
-          walletIdToUse = walletData.id;
+        }
+        
+        if (!walletIdToUse) {
+          console.log('No wallet ID available for transactions');
+          return []; // Return empty array if no wallet ID
         }
         
         const { data, error } = await supabase
@@ -65,6 +78,6 @@ export const useTransactions = (walletId?: string) => {
         return []; // Return empty array on error
       }
     },
-    enabled: !!walletId || !!user,
+    enabled: !!walletId || !!user?.id,
   });
 };

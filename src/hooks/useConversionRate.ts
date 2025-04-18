@@ -17,7 +17,7 @@ export const useConversionRate = () => {
           .from('system_settings')
           .select('value')
           .eq('key', 'currency_conversion')
-          .single();
+          .maybeSingle();
         
         if (error) {
           console.error("Error fetching conversion rate:", error);

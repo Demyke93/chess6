@@ -1,5 +1,6 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.21.0"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -125,7 +126,23 @@ serve(async (req) => {
     } 
     // Handle regular API calls
     else {
-      const { amount, email, type, accountNumber, bankCode } = await req.json()
+      const body = await req.json().catch(() => ({
+        amount: 0,
+        email: '',
+        type: 'deposit'
+      }));
+      
+      const { amount, email, type, accountNumber, bankCode } = body;
+      
+      if (!amount || !email) {
+        return new Response(JSON.stringify({ 
+          status: false,
+          message: "Missing required fields: amount and email are required" 
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 400,
+        });
+      }
       
       if (type === 'withdrawal') {
         // First create a transfer recipient
@@ -196,35 +213,12 @@ serve(async (req) => {
     }
   } catch (error) {
     console.error("Error in Paystack function:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ 
+      status: false, 
+      error: error.message || "An unexpected error occurred" 
+    }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 500,
     })
   }
 })
-
-// Helper function to create a Supabase client
-const createClient = (url, key, options = {}) => {
-  return {
-    from: (table) => ({
-      select: (columns) => ({
-        eq: (column, value) => ({
-          single: () => ({
-            data: { /* mock data */ },
-            error: null
-          })
-        }),
-      }),
-      update: (data) => ({
-        eq: (column, value) => ({
-          data: { /* mock data */ },
-          error: null
-        })
-      }),
-      insert: (data) => ({
-        data: { /* mock data */ },
-        error: null
-      })
-    }),
-  };
-};
