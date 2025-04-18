@@ -10,23 +10,31 @@ export const useWallet = () => {
   return useQuery({
     queryKey: ['wallet'],
     queryFn: async () => {
+      if (!user?.id) throw new Error('User not authenticated');
+
       const { data: walletData, error: walletError } = await supabase
         .from('wallets')
         .select('*')
-        .eq('user_id', user?.id)
+        .eq('user_id', user.id)
         .single();
       
       if (walletError) throw walletError;
 
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('is_demo')
-        .eq('id', user?.id)
-        .single();
-      
-      if (profileError) throw profileError;
+      let isDemo = false;
+      try {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('is_demo')
+          .eq('id', user.id)
+          .single();
+        
+        isDemo = profileData?.is_demo || false;
+      } catch (err) {
+        console.error('Error fetching profile data:', err);
+        // Continue even if profile data couldn't be fetched
+      }
 
-      return { ...walletData, is_demo: profileData.is_demo } as Wallet;
+      return { ...walletData, is_demo: isDemo } as Wallet;
     },
     enabled: !!user,
   });

@@ -5,13 +5,18 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { useQuery } from '@tanstack/react-query';
 import { CoinConversionInfo } from '@/components/CoinConversionInfo';
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FormEvent } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ArrowUpFromLine, ArrowDownToLine } from 'lucide-react';
+import { ArrowUpFromLine, ArrowDownToLine, Wallet } from 'lucide-react';
+import { useWallet } from '@/hooks/useWallet';
+import { useTransactions } from '@/hooks/useTransactions';
+import { TransactionHistory } from '@/components/wallet/TransactionHistory';
+import { TransactionForm } from '@/components/wallet/TransactionForm';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useQuery } from '@tanstack/react-query';
 
 const WalletPage = () => {
   const { user } = useAuth();
@@ -23,30 +28,11 @@ const WalletPage = () => {
   const [accountNumber, setAccountNumber] = useState('');
   const [accountName, setAccountName] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
+  const [activeTab, setActiveTab] = useState("balance");
 
-  const { data: wallet, isLoading, refetch } = useQuery({
-    queryKey: ['wallet'],
-    queryFn: async () => {
-      const { data: walletData, error: walletError } = await supabase
-        .from('wallets')
-        .select('*')
-        .eq('user_id', user?.id)
-        .single();
-      
-      if (walletError) throw walletError;
-
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('is_demo')
-        .eq('id', user?.id)
-        .single();
-      
-      if (profileError) throw profileError;
-
-      return { ...walletData, is_demo: profileData.is_demo };
-    },
-    enabled: !!user,
-  });
+  const { data: wallet, isLoading: walletLoading, refetch } = useWallet();
+  
+  const { data: transactions = [], isLoading: transactionsLoading } = useTransactions(wallet?.id);
 
   const { data: banks } = useQuery({
     queryKey: ['banks'],
@@ -65,18 +51,23 @@ const WalletPage = () => {
   const { data: conversionRate } = useQuery({
     queryKey: ["conversionRate"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('system_settings')
-        .select('value')
-        .eq('key', 'currency_conversion')
-        .single();
-      
-      if (error) {
-        console.error("Error fetching conversion rate:", error);
+      try {
+        const { data, error } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'currency_conversion')
+          .single();
+        
+        if (error) {
+          console.error("Error fetching conversion rate:", error);
+          return { value: { naira_to_coin: 1000, min_deposit: 1000, min_withdrawal: 1000 } };
+        }
+        
+        return data || { value: { naira_to_coin: 1000, min_deposit: 1000, min_withdrawal: 1000 } };
+      } catch (error) {
+        console.error("Error in conversion rate fetch:", error);
         return { value: { naira_to_coin: 1000, min_deposit: 1000, min_withdrawal: 1000 } };
       }
-      
-      return data || { value: { naira_to_coin: 1000, min_deposit: 1000, min_withdrawal: 1000 } };
     }
   });
 
@@ -129,16 +120,14 @@ const WalletPage = () => {
       });
 
       if (response.data.status) {
-        // Create a pending transaction record
         await supabase.from('transactions').insert({
           wallet_id: wallet?.id,
-          amount: depositAmount / nairaRate, // Convert to coins
+          amount: depositAmount / nairaRate,
           type: 'deposit',
           status: 'pending',
           reference: response.data.data.reference
         });
         
-        // Redirect to Paystack checkout
         window.location.href = response.data.data.authorization_url;
       } else {
         throw new Error('Failed to initialize payment');
@@ -233,7 +222,6 @@ const WalletPage = () => {
       });
 
       if (response.data.status) {
-        // Create a transaction record
         await supabase.from('transactions').insert({
           wallet_id: wallet?.id,
           amount: coins,
@@ -247,7 +235,6 @@ const WalletPage = () => {
           }
         });
 
-        // Update wallet balance
         await supabase.from('wallets').update({
           balance: (wallet?.balance || 0) - coins,
           updated_at: new Date().toISOString()
@@ -272,7 +259,7 @@ const WalletPage = () => {
     }
   };
 
-  if (isLoading) {
+  if (walletLoading) {
     return <div className="flex justify-center items-center h-64">
       <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-chess-accent"></div>
     </div>;
@@ -280,7 +267,9 @@ const WalletPage = () => {
 
   return (
     <div className="container mx-auto p-4 space-y-6">
-      <h1 className="text-3xl font-bold">Wallet</h1>
+      <h1 className="text-3xl font-bold flex items-center gap-2">
+        <Wallet className="h-7 w-7" /> Wallet
+      </h1>
       
       {wallet?.is_demo && (
         <Card className="border-yellow-600/50 bg-yellow-900/20">
@@ -294,70 +283,59 @@ const WalletPage = () => {
         </Card>
       )}
 
-      <div className="grid md:grid-cols-2 gap-6">
-        <Card className="border-chess-brown/50 bg-chess-dark/90">
-          <CardHeader>
-            <CardTitle>Balance</CardTitle>
-            <CardDescription>Your current balance and transaction options</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="text-2xl font-bold">
-                {isLoading ? 'Loading...' : `${wallet?.balance || 0} coins`}
-              </div>
-
-              {!wallet?.is_demo && (
-                <div className="space-y-4">
-                  <ToggleGroup
-                    type="single"
-                    value={transactionType}
-                    onValueChange={(value) => value && setTransactionType(value as 'deposit' | 'withdraw')}
-                    className="justify-start"
-                  >
-                    <ToggleGroupItem value="deposit" className="flex items-center gap-2">
-                      <ArrowUpFromLine className="w-4 h-4" />
-                      Deposit
-                    </ToggleGroupItem>
-                    <ToggleGroupItem value="withdraw" className="flex items-center gap-2">
-                      <ArrowDownToLine className="w-4 h-4" />
-                      Withdraw
-                    </ToggleGroupItem>
-                  </ToggleGroup>
-
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Amount (₦)</label>
-                    <div className="flex gap-4">
-                      <Input
-                        type="number"
-                        min={transactionType === 'deposit' ? minDeposit : minWithdrawal}
-                        step="100"
-                        value={amount}
-                        onChange={(e) => setAmount(e.target.value)}
-                        placeholder={`Minimum: ₦${(transactionType === 'deposit' ? minDeposit : minWithdrawal).toLocaleString()}`}
-                      />
-                      <Button 
-                        onClick={transactionType === 'deposit' ? handleDeposit : () => setIsWithdrawalOpen(true)}
-                      >
-                        {transactionType === 'deposit' ? 'Deposit' : 'Withdraw'}
-                      </Button>
-                    </div>
-                    {amount && !isNaN(Number(amount)) && (
-                      <p className="text-sm text-gray-400">
-                        {transactionType === 'deposit' 
-                          ? `You'll receive ${(Number(amount) / nairaRate).toFixed(2)} coins`
-                          : `Requires ${(Number(amount) / nairaRate).toFixed(2)} coins from your balance`
-                        }
-                      </p>
-                    )}
-                  </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="mb-6">
+          <TabsTrigger value="balance">Balance & Transactions</TabsTrigger>
+          <TabsTrigger value="info">Coin Information</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="balance" className="space-y-6">
+          <Card className="border-chess-brown/50 bg-chess-dark/90">
+            <CardHeader>
+              <CardTitle>Balance</CardTitle>
+              <CardDescription>Your current balance and transaction options</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="text-2xl font-bold">
+                  {walletLoading ? 'Loading...' : `${wallet?.balance || 0} coins`}
                 </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
 
-        <CoinConversionInfo />
-      </div>
+                {!wallet?.is_demo && (
+                  <TransactionForm
+                    transactionType={transactionType}
+                    setTransactionType={setTransactionType}
+                    amount={amount}
+                    setAmount={setAmount}
+                    handleDeposit={handleDeposit}
+                    setIsWithdrawalOpen={setIsWithdrawalOpen}
+                    minAmount={transactionType === 'deposit' ? minDeposit : minWithdrawal}
+                    nairaRate={nairaRate}
+                  />
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-chess-brown/50 bg-chess-dark/90">
+            <CardHeader>
+              <CardTitle>Transaction History</CardTitle>
+              <CardDescription>Your recent deposits and withdrawals</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <TransactionHistory 
+                transactions={transactions} 
+                isLoading={transactionsLoading}
+                nairaRate={nairaRate}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+        
+        <TabsContent value="info">
+          <CoinConversionInfo />
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={isWithdrawalOpen} onOpenChange={setIsWithdrawalOpen}>
         <DialogContent className="bg-chess-dark border-chess-brown text-white">
