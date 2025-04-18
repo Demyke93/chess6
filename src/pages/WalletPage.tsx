@@ -2,13 +2,12 @@
 import { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { CoinConversionInfo } from '@/components/CoinConversionInfo';
 import { FormEvent } from 'react';
-import { Wallet } from 'lucide-react';
+import { Wallet, Loader2 } from 'lucide-react';
 import { useWallet } from '@/hooks/useWallet';
 import { useTransactions } from '@/hooks/useTransactions';
 import { TransactionHistory } from '@/components/wallet/TransactionHistory';
@@ -78,14 +77,19 @@ const WalletPage = () => {
     }
 
     try {
-      // Create transaction first to ensure it exists
-      if (!wallet?.id) {
-        toast({
-          title: 'Error',
-          description: 'No wallet found. Please refresh the page.',
-          variant: 'destructive',
-        });
-        return;
+      // Check if we have a proper wallet first
+      if (!wallet?.id || wallet.isPlaceholder) {
+        console.log('Refreshing wallet data before proceeding with deposit');
+        await refetchWallet();
+        
+        if (!wallet?.id || wallet.isPlaceholder) {
+          toast({
+            title: 'Error',
+            description: 'Unable to access your wallet. Please try again later or contact support.',
+            variant: 'destructive',
+          });
+          return;
+        }
       }
       
       // Generate a unique reference for this transaction
@@ -210,8 +214,14 @@ const WalletPage = () => {
         throw new Error('Please verify your account details first');
       }
 
-      if (!wallet?.id) {
-        throw new Error('No wallet found. Please refresh the page.');
+      // Check if we have a proper wallet
+      if (!wallet?.id || wallet.isPlaceholder) {
+        console.log('Refreshing wallet data before proceeding with withdrawal');
+        await refetchWallet();
+        
+        if (!wallet?.id || wallet.isPlaceholder) {
+          throw new Error('Unable to access your wallet. Please try again later.');
+        }
       }
       
       // Create the withdrawal transaction
@@ -290,10 +300,37 @@ const WalletPage = () => {
     }
   };
 
-  if (walletLoading && !wallet) {
+  if (walletLoading) {
     return (
       <div className="flex justify-center items-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-chess-accent"></div>
+        <span className="ml-3">Loading wallet...</span>
+      </div>
+    );
+  }
+
+  // Changed this check to also show the interface when we have a placeholder wallet
+  if (!wallet) {
+    return (
+      <div className="container mx-auto p-4 space-y-6">
+        <Card className="border-red-600/50 bg-red-900/20">
+          <CardContent className="p-6">
+            <div className="flex flex-col items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 text-red-500 animate-spin mb-4" />
+              <h3 className="text-red-500 font-semibold text-lg">No wallet found</h3>
+              <p className="text-center text-gray-400 mt-2">
+                We're having trouble accessing your wallet. Please try refreshing the page.
+              </p>
+              <Button 
+                onClick={() => window.location.reload()} 
+                className="mt-4"
+                variant="outline"
+              >
+                Refresh Page
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -315,6 +352,32 @@ const WalletPage = () => {
           </CardContent>
         </Card>
       )}
+      
+      {wallet?.isPlaceholder && (
+        <Card className="border-yellow-600/50 bg-yellow-900/20">
+          <CardContent className="p-6">
+            <h3 className="text-yellow-500 font-semibold text-lg mb-2">Limited Access</h3>
+            <p className="text-yellow-400/80">
+              Your wallet is currently in limited access mode. Some features may be restricted.
+              Please try refreshing the page or contact support if this persists.
+            </p>
+            <Button 
+              onClick={() => {
+                refetchWallet();
+                toast({
+                  title: 'Refreshing',
+                  description: 'Attempting to refresh wallet data...'
+                });
+              }} 
+              variant="outline" 
+              className="mt-3 bg-yellow-900/30 border-yellow-600/40"
+            >
+              <Loader2 className="mr-2 h-4 w-4" />
+              Refresh Wallet
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-6">
@@ -331,7 +394,7 @@ const WalletPage = () => {
             <CardContent>
               <div className="space-y-4">
                 <div className="text-2xl font-bold">
-                  {walletLoading ? 'Loading...' : `${wallet?.balance?.toFixed(2) || 0} coins`}
+                  {`${wallet?.balance?.toFixed(2) || 0} coins`}
                 </div>
 
                 {!wallet?.is_demo && (

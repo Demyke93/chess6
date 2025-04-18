@@ -15,6 +15,6 @@ export const useBanks = () => {
       }
     },
     staleTime: 24 * 60 * 60 * 1000, // 24 hours
-    cacheTime: 24 * 60 * 60 * 1000, // 24 hours
+    gcTime: 24 * 60 * 60 * 1000, // 24 hours (this replaces cacheTime in newer versions)
   });
 };
