@@ -36,7 +36,7 @@ export const TransactionHistory = ({ transactions, isLoading, nairaRate }: Trans
     );
   }
 
-  if (transactions.length === 0) {
+  if (!transactions || transactions.length === 0) {
     return (
       <div className="text-center py-8 text-gray-400">
         No transactions found
@@ -74,8 +74,8 @@ export const TransactionHistory = ({ transactions, isLoading, nairaRate }: Trans
           </div>
           
           <div className="ml-4">
-            <span className={`px-2 py-1 rounded-full text-xs border ${statusClasses[transaction.status]} flex items-center gap-1`}>
-              {statusIcons[transaction.status]}
+            <span className={`px-2 py-1 rounded-full text-xs border ${statusClasses[transaction.status] || ''} flex items-center gap-1`}>
+              {statusIcons[transaction.status] || <Clock className="h-4 w-4" />}
               <span>{transaction.status}</span>
             </span>
           </div>

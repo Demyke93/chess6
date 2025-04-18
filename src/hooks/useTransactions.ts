@@ -20,31 +20,50 @@ export const useTransactions = (walletId?: string) => {
   return useQuery({
     queryKey: ['transactions', walletId],
     queryFn: async () => {
-      if (!walletId) {
-        // If no wallet ID is provided, fetch the user's wallet first
-        if (!user?.id) throw new Error('User not authenticated');
+      try {
+        let walletIdToUse = walletId;
         
-        const { data: walletData, error: walletError } = await supabase
-          .from('wallets')
-          .select('id')
-          .eq('user_id', user.id)
-          .single();
+        if (!walletIdToUse) {
+          // If no wallet ID is provided, fetch the user's wallet first
+          if (!user?.id) {
+            return []; // Return empty array if user is not authenticated
+          }
+          
+          const { data: walletData, error: walletError } = await supabase
+            .from('wallets')
+            .select('id')
+            .eq('user_id', user.id)
+            .single();
+          
+          if (walletError) {
+            console.error('Error fetching wallet:', walletError);
+            return []; // Return empty array on error
+          }
+          
+          if (!walletData) {
+            console.error('Wallet not found');
+            return []; // Return empty array if wallet not found
+          }
+          
+          walletIdToUse = walletData.id;
+        }
         
-        if (walletError) throw walletError;
-        if (!walletData) throw new Error('Wallet not found');
+        const { data, error } = await supabase
+          .from('transactions')
+          .select('*')
+          .eq('wallet_id', walletIdToUse)
+          .order('created_at', { ascending: false });
+          
+        if (error) {
+          console.error('Error fetching transactions:', error);
+          return []; // Return empty array on error
+        }
         
-        walletId = walletData.id;
+        return data as Transaction[];
+      } catch (error) {
+        console.error('Error in transaction fetch:', error);
+        return []; // Return empty array on error
       }
-      
-      const { data, error } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('wallet_id', walletId)
-        .order('created_at', { ascending: false });
-        
-      if (error) throw error;
-      
-      return data as Transaction[];
     },
     enabled: !!walletId || !!user,
   });

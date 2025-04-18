@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ArrowUpFromLine, ArrowDownToLine } from 'lucide-react';
+import { useState } from "react";
 
 interface TransactionFormProps {
   transactionType: 'deposit' | 'withdraw';
@@ -25,6 +26,23 @@ export const TransactionForm = ({
   minAmount,
   nairaRate,
 }: TransactionFormProps) => {
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const handleTransactionAction = async () => {
+    if (transactionType === 'deposit') {
+      setIsProcessing(true);
+      try {
+        await handleDeposit();
+      } catch (error) {
+        console.error("Error processing deposit:", error);
+      } finally {
+        setIsProcessing(false);
+      }
+    } else {
+      setIsWithdrawalOpen(true);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <ToggleGroup
@@ -55,9 +73,10 @@ export const TransactionForm = ({
             placeholder={`Minimum: ₦${minAmount.toLocaleString()}`}
           />
           <Button 
-            onClick={transactionType === 'deposit' ? handleDeposit : () => setIsWithdrawalOpen(true)}
+            onClick={handleTransactionAction}
+            disabled={isProcessing}
           >
-            {transactionType === 'deposit' ? 'Deposit' : 'Withdraw'}
+            {isProcessing ? 'Processing...' : transactionType === 'deposit' ? 'Deposit' : 'Withdraw'}
           </Button>
         </div>
         {amount && !isNaN(Number(amount)) && (
