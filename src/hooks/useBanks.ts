@@ -7,6 +7,10 @@ export const useBanks = () => {
     queryFn: async () => {
       try {
         const response = await fetch('https://api.paystack.co/bank');
+        if (!response.ok) {
+          throw new Error(`Failed to fetch banks: ${response.statusText}`);
+        }
+        
         const data = await response.json();
         return data.status ? data.data : [];
       } catch (error) {
@@ -16,5 +20,6 @@ export const useBanks = () => {
     },
     staleTime: 24 * 60 * 60 * 1000, // 24 hours
     gcTime: 24 * 60 * 60 * 1000, // 24 hours (this replaces cacheTime in newer versions)
+    retry: 2,
   });
 };

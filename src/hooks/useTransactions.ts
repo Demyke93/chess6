@@ -68,5 +68,6 @@ export const useTransactions = (walletId?: string) => {
     },
     enabled: !!walletId || !!user?.id,
     staleTime: 30000, // 30 seconds
+    retry: 2,
   });
 };

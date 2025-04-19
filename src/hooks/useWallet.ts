@@ -26,15 +26,7 @@ export const useWallet = () => {
         
         if (walletError) {
           console.error('Error fetching wallet data:', walletError);
-          // Return empty wallet with default values instead of throwing
-          return {
-            id: '',
-            user_id: user.id,
-            balance: 0,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            is_demo: false
-          } as Wallet;
+          throw new Error(`Failed to fetch wallet: ${walletError.message}`);
         }
 
         // If wallet doesn't exist for this user, create one
@@ -84,18 +76,10 @@ export const useWallet = () => {
                 updated_at: new Date().toISOString(),
                 is_demo: false,
                 isPlaceholder: true // Flag to identify this is a placeholder
-              } as Wallet & { isPlaceholder: boolean };
+              } as Wallet;
             }
             
-            // Return default wallet for other errors
-            return {
-              id: '',
-              user_id: user.id,
-              balance: 0,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-              is_demo: false
-            } as Wallet;
+            throw new Error(`Failed to create wallet: ${createError.message}`);
           }
           
           return {
@@ -121,18 +105,11 @@ export const useWallet = () => {
         return { ...walletData, is_demo: isDemo } as Wallet;
       } catch (error) {
         console.error('Error in wallet fetch:', error);
-        // Return empty wallet with default values instead of throwing
-        return {
-          id: '',
-          user_id: user.id,
-          balance: 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          is_demo: false
-        } as Wallet;
+        throw error;
       }
     },
     enabled: !!user?.id,
     staleTime: 30000, // 30 seconds
+    retry: 2,
   });
 };

@@ -7,7 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { CoinConversionInfo } from '@/components/CoinConversionInfo';
 import { FormEvent } from 'react';
-import { Wallet, Loader2 } from 'lucide-react';
+import { Wallet as WalletIcon, Loader2, RefreshCcw, AlertTriangle } from 'lucide-react';
 import { useWallet } from '@/hooks/useWallet';
 import { useTransactions } from '@/hooks/useTransactions';
 import { TransactionHistory } from '@/components/wallet/TransactionHistory';
@@ -28,10 +28,20 @@ const WalletPage = () => {
   const [accountName, setAccountName] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [activeTab, setActiveTab] = useState("balance");
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const { data: wallet, isLoading: walletLoading, refetch: refetchWallet } = useWallet();
+  const { 
+    data: wallet, 
+    isLoading: walletLoading, 
+    refetch: refetchWallet,
+    error: walletError 
+  } = useWallet();
   
-  const { data: transactions = [], isLoading: transactionsLoading, refetch: refetchTransactions } = useTransactions(wallet?.id);
+  const { 
+    data: transactions = [], 
+    isLoading: transactionsLoading, 
+    refetch: refetchTransactions 
+  } = useTransactions(wallet?.id);
 
   const { data: banks } = useBanks();
 
@@ -46,6 +56,26 @@ const WalletPage = () => {
   const minWithdrawal = typeof conversionRate?.value === 'object' 
     ? (conversionRate.value as any).min_withdrawal || 1000 
     : 1000;
+
+  const handleRefreshWallet = async () => {
+    setIsRefreshing(true);
+    try {
+      await refetchWallet();
+      await refetchTransactions();
+      toast({
+        title: 'Refreshed',
+        description: 'Wallet data has been refreshed'
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to refresh wallet data',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const handleDeposit = async () => {
     if (!user) {
@@ -300,6 +330,7 @@ const WalletPage = () => {
     }
   };
 
+  // Show loading state
   if (walletLoading) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -309,24 +340,35 @@ const WalletPage = () => {
     );
   }
 
-  // Changed this check to also show the interface when we have a placeholder wallet
+  // Show error state if wallet is null (but not loading)
   if (!wallet) {
     return (
       <div className="container mx-auto p-4 space-y-6">
         <Card className="border-red-600/50 bg-red-900/20">
           <CardContent className="p-6">
             <div className="flex flex-col items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 text-red-500 animate-spin mb-4" />
-              <h3 className="text-red-500 font-semibold text-lg">No wallet found</h3>
+              <AlertTriangle className="h-8 w-8 text-red-500 mb-4" />
+              <h3 className="text-red-500 font-semibold text-lg">Wallet Error</h3>
               <p className="text-center text-gray-400 mt-2">
-                We're having trouble accessing your wallet. Please try refreshing the page.
+                {walletError ? `${walletError.message}` : 'Unable to access your wallet. Please try again later or contact support.'}
               </p>
               <Button 
-                onClick={() => window.location.reload()} 
+                onClick={handleRefreshWallet} 
                 className="mt-4"
                 variant="outline"
+                disabled={isRefreshing}
               >
-                Refresh Page
+                {isRefreshing ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Refreshing...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCcw className="mr-2 h-4 w-4" />
+                    Refresh Wallet
+                  </>
+                )}
               </Button>
             </div>
           </CardContent>
@@ -338,7 +380,7 @@ const WalletPage = () => {
   return (
     <div className="container mx-auto p-4 space-y-6">
       <h1 className="text-3xl font-bold flex items-center gap-2">
-        <Wallet className="h-7 w-7" /> Wallet
+        <WalletIcon className="h-7 w-7" /> Wallet
       </h1>
       
       {wallet?.is_demo && (
@@ -362,17 +404,16 @@ const WalletPage = () => {
               Please try refreshing the page or contact support if this persists.
             </p>
             <Button 
-              onClick={() => {
-                refetchWallet();
-                toast({
-                  title: 'Refreshing',
-                  description: 'Attempting to refresh wallet data...'
-                });
-              }} 
+              onClick={handleRefreshWallet} 
               variant="outline" 
               className="mt-3 bg-yellow-900/30 border-yellow-600/40"
+              disabled={isRefreshing}
             >
-              <Loader2 className="mr-2 h-4 w-4" />
+              {isRefreshing ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCcw className="mr-2 h-4 w-4" />
+              )}
               Refresh Wallet
             </Button>
           </CardContent>
@@ -388,7 +429,21 @@ const WalletPage = () => {
         <TabsContent value="balance" className="space-y-6">
           <Card className="border-chess-brown/50 bg-chess-dark/90">
             <CardHeader>
-              <CardTitle>Balance</CardTitle>
+              <CardTitle className="flex items-center justify-between">
+                Balance
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={handleRefreshWallet}
+                  disabled={isRefreshing}
+                >
+                  {isRefreshing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCcw className="h-4 w-4" />
+                  )}
+                </Button>
+              </CardTitle>
               <CardDescription>Your current balance and transaction options</CardDescription>
             </CardHeader>
             <CardContent>
