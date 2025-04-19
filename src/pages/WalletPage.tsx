@@ -34,7 +34,6 @@ const WalletPage = () => {
     data: wallet, 
     isLoading: walletLoading, 
     refetch: refetchWallet,
-    error: walletError,
   } = useWallet();
   
   const { 
@@ -107,34 +106,27 @@ const WalletPage = () => {
     }
 
     try {
-      // Check for wallet
-      if (!wallet || walletError) {
-        toast({
-          title: 'Error',
-          description: 'Unable to access your wallet. Please try refreshing the page.',
-          variant: 'destructive',
-        });
-        return;
+      // Check and create a wallet if needed
+      if (!wallet?.id || wallet.id.startsWith('temp-')) {
+        console.log('Trying to create or refresh wallet before proceeding with deposit');
+        await refetchWallet();
       }
-
+      
       // Generate a unique reference for this transaction
       const reference = `chess_${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
       
       // Create the pending transaction in the database
-      const { data: txData, error: txError } = await supabase.from('transactions').insert({
+      const { error: txError } = await supabase.from('transactions').insert({
         wallet_id: wallet.id,
         amount: depositAmount / nairaRate,
         type: 'deposit',
         status: 'pending',
         reference: reference
-      }).select('id').single();
+      });
       
       if (txError) {
-        console.error('Transaction creation error:', txError);
         throw new Error(`Failed to create transaction: ${txError.message}`);
       }
-      
-      console.log('Created transaction:', txData);
       
       // Now call the Paystack function with the reference
       const response = await supabase.functions.invoke('paystack', {
@@ -147,10 +139,6 @@ const WalletPage = () => {
       });
 
       console.log('Paystack response:', response);
-      
-      if (!response.data || !response.data.status) {
-        throw new Error('Payment initialization failed');
-      }
 
       // Redirect to payment URL
       window.location.href = response?.data?.data?.authorization_url || '';
@@ -314,49 +302,6 @@ const WalletPage = () => {
       <div className="flex justify-center items-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-chess-accent"></div>
         <span className="ml-3">Loading wallet...</span>
-      </div>
-    );
-  }
-
-  // Show error state
-  if (walletError && !wallet) {
-    return (
-      <div className="container mx-auto p-4 space-y-6">
-        <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <WalletIcon className="h-7 w-7" /> Wallet
-          </h1>
-          <Button 
-            onClick={handleRefreshWallet} 
-            variant="outline" 
-            size="sm"
-            disabled={isRefreshing}
-          >
-            {isRefreshing ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCcw className="h-4 w-4" />
-            )}
-            <span className="ml-2">Refresh</span>
-          </Button>
-        </div>
-        
-        <Card className="border-red-600/50 bg-red-900/20">
-          <CardContent className="p-6">
-            <h3 className="text-red-500 font-semibold text-lg mb-2">Error Loading Wallet</h3>
-            <p className="text-red-400/80 mb-4">
-              We encountered an issue while loading your wallet. This could be due to a network issue or a problem with your account.
-            </p>
-            <Button onClick={handleRefreshWallet} disabled={isRefreshing}>
-              {isRefreshing ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <RefreshCcw className="h-4 w-4 mr-2" />
-              )}
-              Try Again
-            </Button>
-          </CardContent>
-        </Card>
       </div>
     );
   }

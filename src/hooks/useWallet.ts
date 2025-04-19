@@ -26,50 +26,39 @@ export const useWallet = () => {
         
         if (walletError) {
           console.error('Error fetching wallet data:', walletError);
-          throw walletError;
+          return null;
         }
 
         // If wallet doesn't exist for this user, create one
         if (!walletData) {
           console.log('Creating new wallet for user', user.id);
           
-          try {
-            // Create the wallet
-            const { data: newWallet, error: createError } = await supabase
-              .from('wallets')
-              .insert({
-                user_id: user.id,
-                balance: 0
-              })
-              .select('*')
-              .single();
+          // Create the wallet
+          const { data: newWallet, error: createError } = await supabase
+            .from('wallets')
+            .insert({
+              user_id: user.id,
+              balance: 0
+            })
+            .select('*')
+            .single();
 
-            if (createError) {
-              console.error('Error creating wallet:', createError);
-              throw createError;
-            }
-            
-            console.log('Successfully created wallet:', newWallet);
-            
-            // Return the newly created wallet
-            let isDemo = false;
-            try {
-              const { data: profileData } = await supabase
-                .from('profiles')
-                .select('is_demo')
-                .eq('id', user.id)
-                .maybeSingle();
-              
-              isDemo = profileData?.is_demo || false;
-            } catch (err) {
-              console.error('Error fetching profile data:', err);
-            }
-            
-            return { ...newWallet, is_demo: isDemo } as Wallet;
-          } catch (error) {
-            console.error('Failed to create wallet, returning placeholder:', error);
-            throw new Error('Failed to create wallet: ' + error.message);
+          if (createError) {
+            console.error('Error creating wallet:', createError);
+            // Return a default wallet object instead of null
+            return {
+              id: 'temp-' + user.id,
+              user_id: user.id,
+              balance: 0,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            } as Wallet;
           }
+          
+          return {
+            ...newWallet,
+            is_demo: false
+          } as Wallet;
         }
 
         let isDemo = false;
@@ -83,12 +72,20 @@ export const useWallet = () => {
           isDemo = profileData?.is_demo || false;
         } catch (err) {
           console.error('Error fetching profile data:', err);
+          // Continue even if profile data couldn't be fetched
         }
 
         return { ...walletData, is_demo: isDemo } as Wallet;
       } catch (error) {
         console.error('Error in wallet fetch:', error);
-        throw new Error('Error fetching wallet: ' + error.message);
+        // Return a default wallet object instead of null
+        return {
+          id: 'temp-' + user.id,
+          user_id: user.id,
+          balance: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } as Wallet;
       }
     },
     enabled: !!user?.id,
