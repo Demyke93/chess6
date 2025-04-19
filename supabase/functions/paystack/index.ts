@@ -15,7 +15,10 @@ serve(async (req) => {
 
   const PAYSTACK_SECRET_KEY = Deno.env.get('PAYSTACK_SECRET_KEY') || 'sk_test_15e8f8988e2fb1529ab6f0584fceb3dcc903d92d'
   if (!PAYSTACK_SECRET_KEY) {
-    throw new Error('PAYSTACK_SECRET_KEY is not set')
+    return new Response(JSON.stringify({ status: false, message: "API key not configured" }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500,
+    });
   }
 
   try {
@@ -126,11 +129,16 @@ serve(async (req) => {
     } 
     // Handle regular API calls
     else {
-      const body = await req.json().catch(() => ({
-        amount: 0,
-        email: '',
-        type: 'deposit'
-      }));
+      let body;
+      try {
+        body = await req.json();
+      } catch (err) {
+        body = {
+          amount: 0,
+          email: '',
+          type: 'deposit'
+        };
+      }
       
       const { amount, email, type, accountNumber, bankCode } = body;
       
@@ -188,7 +196,7 @@ serve(async (req) => {
         })
       } else {
         // Generate a unique reference
-        const reference = `chess_${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
+        const reference = body.reference || `chess_${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
         
         // Handle deposits by initializing a payment
         const response = await fetch('https://api.paystack.co/transaction/initialize', {

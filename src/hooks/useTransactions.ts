@@ -37,8 +37,22 @@ export const useTransactions = (walletId?: string) => {
           }
           
           if (!walletData) {
-            console.log('No wallet found for transactions query - not creating a new one here');
-            return []; // Return empty array - let the useWallet hook handle creation
+            // Create wallet if it doesn't exist
+            const { data: newWallet, error: createError } = await supabase
+              .from('wallets')
+              .insert({
+                user_id: user.id,
+                balance: 0
+              })
+              .select('id')
+              .single();
+              
+            if (createError) {
+              console.error('Error creating wallet:', createError);
+              return []; // Return empty array on error
+            }
+            
+            walletIdToUse = newWallet.id;
           } else {
             walletIdToUse = walletData.id;
           }
@@ -68,6 +82,6 @@ export const useTransactions = (walletId?: string) => {
     },
     enabled: !!walletId || !!user?.id,
     staleTime: 30000, // 30 seconds
-    retry: 2,
+    retry: 3,
   });
 };

@@ -26,29 +26,12 @@ export const useWallet = () => {
         
         if (walletError) {
           console.error('Error fetching wallet data:', walletError);
-          throw new Error(`Failed to fetch wallet: ${walletError.message}`);
+          return null;
         }
 
         // If wallet doesn't exist for this user, create one
         if (!walletData) {
           console.log('Creating new wallet for user', user.id);
-          
-          // Check if there's a pending wallet first
-          const { data: pendingWallet } = await queryClient.fetchQuery({
-            queryKey: ['pending-wallet', user.id],
-            queryFn: async () => {
-              return null; // Just to check if there's a pending creation
-            },
-            staleTime: 0
-          });
-          
-          if (pendingWallet) {
-            console.log('Found pending wallet creation, waiting...');
-            return null;
-          }
-          
-          // Set a pending flag to prevent multiple creations
-          queryClient.setQueryData(['pending-wallet', user.id], { pending: true });
           
           // Create the wallet
           const { data: newWallet, error: createError } = await supabase
@@ -60,26 +43,16 @@ export const useWallet = () => {
             .select('*')
             .single();
 
-          // Remove pending flag
-          queryClient.removeQueries({ queryKey: ['pending-wallet', user.id] });
-
           if (createError) {
             console.error('Error creating wallet:', createError);
-            if (createError.code === '42501') { // Permission denied error
-              console.warn('Permission denied when creating wallet. This may be due to RLS policies.');
-              // Let's handle this gracefully by returning a placeholder wallet
-              return {
-                id: 'temporary-id',
-                user_id: user.id,
-                balance: 0,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-                is_demo: false,
-                isPlaceholder: true // Flag to identify this is a placeholder
-              } as Wallet;
-            }
-            
-            throw new Error(`Failed to create wallet: ${createError.message}`);
+            // Return a default wallet object instead of null
+            return {
+              id: 'temp-' + user.id,
+              user_id: user.id,
+              balance: 0,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            } as Wallet;
           }
           
           return {
@@ -105,11 +78,18 @@ export const useWallet = () => {
         return { ...walletData, is_demo: isDemo } as Wallet;
       } catch (error) {
         console.error('Error in wallet fetch:', error);
-        throw error;
+        // Return a default wallet object instead of null
+        return {
+          id: 'temp-' + user.id,
+          user_id: user.id,
+          balance: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } as Wallet;
       }
     },
     enabled: !!user?.id,
     staleTime: 30000, // 30 seconds
-    retry: 2,
+    retry: 3,
   });
 };

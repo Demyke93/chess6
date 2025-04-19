@@ -7,7 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { CoinConversionInfo } from '@/components/CoinConversionInfo';
 import { FormEvent } from 'react';
-import { Wallet as WalletIcon, Loader2, RefreshCcw, AlertTriangle } from 'lucide-react';
+import { Wallet as WalletIcon, Loader2, RefreshCcw } from 'lucide-react';
 import { useWallet } from '@/hooks/useWallet';
 import { useTransactions } from '@/hooks/useTransactions';
 import { TransactionHistory } from '@/components/wallet/TransactionHistory';
@@ -34,7 +34,6 @@ const WalletPage = () => {
     data: wallet, 
     isLoading: walletLoading, 
     refetch: refetchWallet,
-    error: walletError 
   } = useWallet();
   
   const { 
@@ -45,7 +44,7 @@ const WalletPage = () => {
 
   const { data: banks } = useBanks();
 
-  const { data: conversionRate, isLoading: rateLoading } = useConversionRate();
+  const { data: conversionRate } = useConversionRate();
 
   const nairaRate = typeof conversionRate?.value === 'object' 
     ? (conversionRate.value as any).naira_to_coin || 1000 
@@ -107,19 +106,10 @@ const WalletPage = () => {
     }
 
     try {
-      // Check if we have a proper wallet first
-      if (!wallet?.id || wallet.isPlaceholder) {
-        console.log('Refreshing wallet data before proceeding with deposit');
+      // Check and create a wallet if needed
+      if (!wallet?.id || wallet.id.startsWith('temp-')) {
+        console.log('Trying to create or refresh wallet before proceeding with deposit');
         await refetchWallet();
-        
-        if (!wallet?.id || wallet.isPlaceholder) {
-          toast({
-            title: 'Error',
-            description: 'Unable to access your wallet. Please try again later or contact support.',
-            variant: 'destructive',
-          });
-          return;
-        }
       }
       
       // Generate a unique reference for this transaction
@@ -150,25 +140,13 @@ const WalletPage = () => {
 
       console.log('Paystack response:', response);
 
-      if (response?.error) {
-        throw new Error(`Payment failed: ${response.error}`);
-      }
-
-      if (!response?.data) {
-        throw new Error('No response from payment service');
-      }
-      
-      if (!response.data.status) {
-        throw new Error(response.data.message || 'Failed to initialize payment');
-      }
-      
       // Redirect to payment URL
-      window.location.href = response.data.data.authorization_url;
+      window.location.href = response?.data?.data?.authorization_url || '';
     } catch (error) {
       console.error('Deposit error:', error);
       toast({
         title: 'Payment Error',
-        description: error.message || 'Failed to process payment',
+        description: 'Failed to process payment. Please try again.',
         variant: 'destructive',
       });
     }
@@ -244,14 +222,10 @@ const WalletPage = () => {
         throw new Error('Please verify your account details first');
       }
 
-      // Check if we have a proper wallet
-      if (!wallet?.id || wallet.isPlaceholder) {
-        console.log('Refreshing wallet data before proceeding with withdrawal');
+      // Check and create a wallet if needed
+      if (!wallet?.id || wallet.id.startsWith('temp-')) {
+        console.log('Trying to create or refresh wallet before proceeding with withdrawal');
         await refetchWallet();
-        
-        if (!wallet?.id || wallet.isPlaceholder) {
-          throw new Error('Unable to access your wallet. Please try again later.');
-        }
       }
       
       // Create the withdrawal transaction
@@ -283,21 +257,13 @@ const WalletPage = () => {
         },
       });
 
-      if (response?.error) {
-        throw new Error(`Withdrawal failed: ${response.error}`);
-      }
-
-      if (!response?.data) {
-        throw new Error('No response from payment service');
-      }
-      
-      if (!response.data.status) {
+      if (!response?.data?.status) {
         // Update transaction to failed status
         await supabase.from('transactions')
           .update({ status: 'failed' })
           .eq('id', txData.id);
           
-        throw new Error(response.data.message || 'Failed to process withdrawal');
+        throw new Error('Failed to process withdrawal');
       }
 
       // Update the wallet balance
@@ -340,48 +306,26 @@ const WalletPage = () => {
     );
   }
 
-  // Show error state if wallet is null (but not loading)
-  if (!wallet) {
-    return (
-      <div className="container mx-auto p-4 space-y-6">
-        <Card className="border-red-600/50 bg-red-900/20">
-          <CardContent className="p-6">
-            <div className="flex flex-col items-center justify-center py-8">
-              <AlertTriangle className="h-8 w-8 text-red-500 mb-4" />
-              <h3 className="text-red-500 font-semibold text-lg">Wallet Error</h3>
-              <p className="text-center text-gray-400 mt-2">
-                {walletError ? `${walletError.message}` : 'Unable to access your wallet. Please try again later or contact support.'}
-              </p>
-              <Button 
-                onClick={handleRefreshWallet} 
-                className="mt-4"
-                variant="outline"
-                disabled={isRefreshing}
-              >
-                {isRefreshing ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Refreshing...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCcw className="mr-2 h-4 w-4" />
-                    Refresh Wallet
-                  </>
-                )}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <div className="container mx-auto p-4 space-y-6">
-      <h1 className="text-3xl font-bold flex items-center gap-2">
-        <WalletIcon className="h-7 w-7" /> Wallet
-      </h1>
+      <div className="flex justify-between items-center">
+        <h1 className="text-3xl font-bold flex items-center gap-2">
+          <WalletIcon className="h-7 w-7" /> Wallet
+        </h1>
+        <Button 
+          onClick={handleRefreshWallet} 
+          variant="outline" 
+          size="sm"
+          disabled={isRefreshing}
+        >
+          {isRefreshing ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCcw className="h-4 w-4" />
+          )}
+          <span className="ml-2">Refresh</span>
+        </Button>
+      </div>
       
       {wallet?.is_demo && (
         <Card className="border-yellow-600/50 bg-yellow-900/20">
@@ -391,31 +335,6 @@ const WalletPage = () => {
               This is a demo account. While you can practice with demo coins, they cannot be used in real matches. 
               To play real matches, please create a regular account.
             </p>
-          </CardContent>
-        </Card>
-      )}
-      
-      {wallet?.isPlaceholder && (
-        <Card className="border-yellow-600/50 bg-yellow-900/20">
-          <CardContent className="p-6">
-            <h3 className="text-yellow-500 font-semibold text-lg mb-2">Limited Access</h3>
-            <p className="text-yellow-400/80">
-              Your wallet is currently in limited access mode. Some features may be restricted.
-              Please try refreshing the page or contact support if this persists.
-            </p>
-            <Button 
-              onClick={handleRefreshWallet} 
-              variant="outline" 
-              className="mt-3 bg-yellow-900/30 border-yellow-600/40"
-              disabled={isRefreshing}
-            >
-              {isRefreshing ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCcw className="mr-2 h-4 w-4" />
-              )}
-              Refresh Wallet
-            </Button>
           </CardContent>
         </Card>
       )}

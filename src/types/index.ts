@@ -1,4 +1,3 @@
-
 export interface User {
   id: string;
   username: string;
@@ -59,7 +58,6 @@ export interface Wallet {
   created_at: string;
   updated_at: string;
   is_demo?: boolean;
-  isPlaceholder?: boolean;
 }
 
 export interface DatabaseMatch {
