@@ -199,7 +199,7 @@ serve(async (req) => {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       } else {
-        // Generate a unique reference
+        // Generate a unique reference for this transaction
         const reference = body.reference || `chess_${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
         
         // Handle deposits by initializing a payment
@@ -218,6 +218,8 @@ serve(async (req) => {
         })
 
         const data = await response.json()
+        console.log("Paystack initialization response:", data);
+        
         return new Response(JSON.stringify(data), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })

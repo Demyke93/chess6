@@ -21,9 +21,14 @@ export const useTransactions = (walletId?: string) => {
     queryKey: ['transactions', walletId, user?.id],
     queryFn: async () => {
       try {
+        if (!user?.id) {
+          console.log('No user ID available for transactions');
+          return [];
+        }
+
         let walletIdToUse = walletId;
         
-        if (!walletIdToUse && user?.id) {
+        if (!walletIdToUse) {
           // If no wallet ID is provided, fetch the user's wallet first
           const { data: walletData, error: walletError } = await supabase
             .from('wallets')
@@ -37,29 +42,16 @@ export const useTransactions = (walletId?: string) => {
           }
           
           if (!walletData) {
-            // Create wallet if it doesn't exist
-            const { data: newWallet, error: createError } = await supabase
-              .from('wallets')
-              .insert({
-                user_id: user.id,
-                balance: 0
-              })
-              .select('id')
-              .single();
-              
-            if (createError) {
-              console.error('Error creating wallet:', createError);
-              return []; // Return empty array on error
-            }
-            
-            walletIdToUse = newWallet.id;
-          } else {
-            walletIdToUse = walletData.id;
+            console.log('No wallet found for user, creating one');
+            // Let the wallet creation happen in useWallet hook
+            return [];
           }
+          
+          walletIdToUse = walletData.id;
         }
         
-        if (!walletIdToUse) {
-          console.log('No wallet ID available for transactions');
+        if (!walletIdToUse || walletIdToUse.startsWith('temp-')) {
+          console.log('No valid wallet ID available for transactions');
           return []; // Return empty array if no wallet ID
         }
         
