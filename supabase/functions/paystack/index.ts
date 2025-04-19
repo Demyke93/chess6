@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.21.0"
 
@@ -13,9 +12,13 @@ serve(async (req) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
-  const PAYSTACK_SECRET_KEY = Deno.env.get('PAYSTACK_SECRET_KEY') || 'sk_test_15e8f8988e2fb1529ab6f0584fceb3dcc903d92d'
+  // Use environment variable for Paystack secret key
+  const PAYSTACK_SECRET_KEY = Deno.env.get('PAYSTACK_SECRET_KEY')
   if (!PAYSTACK_SECRET_KEY) {
-    return new Response(JSON.stringify({ status: false, message: "API key not configured" }), {
+    return new Response(JSON.stringify({ 
+      status: false, 
+      message: "Paystack API key not configured" 
+    }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 500,
     });
